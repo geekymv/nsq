@@ -624,18 +624,19 @@ func (n *NSQD) resizePool(num int, workCh chan *Channel, responseCh chan bool, c
 	if idealPoolSize < 1 {
 		idealPoolSize = 1
 	} else if idealPoolSize > n.getOpts().QueueScanWorkerPoolMax {
-		idealPoolSize = n.getOpts().QueueScanWorkerPoolMax // default 4
+		idealPoolSize = n.getOpts().QueueScanWorkerPoolMax // goroutine 数量的最大值 default 4
 	}
 	for {
 		if idealPoolSize == n.poolSize {
 			break
 		} else if idealPoolSize < n.poolSize {
 			// contract 缩小 goroutine 数量
-			closeCh <- 1
+			closeCh <- 1 // 关闭一个 goroutine（跳出 for 循环）
 			n.poolSize--
 		} else {
 			// expand 增加 goroutine 数量
 			n.waitGroup.Wrap(func() {
+				// 启动 goroutine 执行队列扫描 worker
 				n.queueScanWorker(workCh, responseCh, closeCh)
 			})
 			n.poolSize++
@@ -648,12 +649,14 @@ func (n *NSQD) resizePool(num int, workCh chan *Channel, responseCh chan bool, c
 func (n *NSQD) queueScanWorker(workCh chan *Channel, responseCh chan bool, closeCh chan int) {
 	for {
 		select {
-		case c := <-workCh:
+		case c := <-workCh: // 获取 Channel
 			now := time.Now().UnixNano()
 			dirty := false
+			// 处理 in-flight 队列
 			if c.processInFlightQueue(now) {
 				dirty = true
 			}
+			// 处理延迟队列
 			if c.processDeferredQueue(now) {
 				dirty = true
 			}
@@ -667,7 +670,7 @@ func (n *NSQD) queueScanWorker(workCh chan *Channel, responseCh chan bool, close
 // queueScanLoop runs in a single goroutine to process in-flight and deferred
 // priority queues. It manages a pool of queueScanWorker (configurable max of
 // QueueScanWorkerPoolMax (default: 4)) that process channels concurrently.
-//
+// Redis 过期算法
 // It copies Redis's probabilistic expiration algorithm: it wakes up every
 // QueueScanInterval (default: 100ms) to select a random QueueScanSelectionCount
 // (default: 20) channels from a locally cached list (refreshed every
@@ -678,48 +681,54 @@ func (n *NSQD) queueScanWorker(workCh chan *Channel, responseCh chan bool, close
 // If QueueScanDirtyPercent (default: 25%) of the selected channels were dirty,
 // the loop continues without sleep.
 func (n *NSQD) queueScanLoop() {
-	workCh := make(chan *Channel, n.getOpts().QueueScanSelectionCount) // default 20
+	workCh := make(chan *Channel, n.getOpts().QueueScanSelectionCount) // 要检查的 Channel 数量，default 20
 	responseCh := make(chan bool, n.getOpts().QueueScanSelectionCount)
 	closeCh := make(chan int)
 
 	workTicker := time.NewTicker(n.getOpts().QueueScanInterval)           // default 100ms
 	refreshTicker := time.NewTicker(n.getOpts().QueueScanRefreshInterval) // default 5s
-
+	// 所有 Topic 下的 Channel
 	channels := n.channels()
 	n.resizePool(len(channels), workCh, responseCh, closeCh)
 
 	for {
 		select {
 		case <-workTicker.C:
+			// 每 100ms 执行一次
 			if len(channels) == 0 {
 				continue
 			}
 		case <-refreshTicker.C:
+			// 默认每5s执行一次，根据 Channel 的数量，判断是否要调整 pool size
 			channels = n.channels()
 			n.resizePool(len(channels), workCh, responseCh, closeCh)
 			continue
 		case <-n.exitChan:
 			goto exit
 		}
-
-		num := n.getOpts().QueueScanSelectionCount
+		// select 执行了其中一个 case 之后下面代码才会执行
+		// 也就是说至少每隔100ms下面的代码才会执行
+		// 选择的 Channel 数量
+		num := n.getOpts().QueueScanSelectionCount // default 20
 		if num > len(channels) {
 			num = len(channels)
 		}
 
 	loop:
 		for _, i := range util.UniqRands(num, len(channels)) {
+			// 从 channels 中随机取 20 个 Channel，并将 Channel 放入 worker 中
 			workCh <- channels[i]
 		}
 
 		numDirty := 0
 		for i := 0; i < num; i++ {
-			if <-responseCh {
+			if <-responseCh { // 有过期（超时）的消息
 				numDirty++
 			}
 		}
-
-		if float64(numDirty)/float64(num) > n.getOpts().QueueScanDirtyPercent {
+		// 有超时消息的 Channel 数量占比大于25%
+		if float64(numDirty)/float64(num) > n.getOpts().QueueScanDirtyPercent { // 0.25
+			// 不需要等待100ms，直接继续抽取 Channel
 			goto loop
 		}
 	}
