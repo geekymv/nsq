@@ -389,12 +389,13 @@ func (c *Channel) RequeueMessage(clientID int64, id MessageID, timeout time.Dura
 			c.exitMutex.RUnlock()
 			return errors.New("exiting")
 		}
+		// 立即投递
 		err := c.put(msg)
 		c.exitMutex.RUnlock()
 		return err
 	}
 
-	// deferred requeue
+	// deferred requeue 加入延迟队列
 	return c.StartDeferredTimeout(msg, timeout)
 }
 
