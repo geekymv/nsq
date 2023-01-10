@@ -375,7 +375,7 @@ func (c *Channel) FinishMessage(clientID int64, id MessageID) error {
 //     and requeue a message (aka "deferred requeue")
 //
 func (c *Channel) RequeueMessage(clientID int64, id MessageID, timeout time.Duration) error {
-	// remove from inflight first
+	// remove from inflight first 1.将消息从 in-flight 队列中移除
 	msg, err := c.popInFlightMessage(clientID, id)
 	if err != nil {
 		return err
@@ -389,13 +389,13 @@ func (c *Channel) RequeueMessage(clientID int64, id MessageID, timeout time.Dura
 			c.exitMutex.RUnlock()
 			return errors.New("exiting")
 		}
-		// 立即投递
+		// 2.立即投递，将消息放入 memoryMsgChan
 		err := c.put(msg)
 		c.exitMutex.RUnlock()
 		return err
 	}
 
-	// deferred requeue 加入延迟队列
+	// deferred requeue 2.将消息加入延迟队列
 	return c.StartDeferredTimeout(msg, timeout)
 }
 
@@ -471,12 +471,14 @@ func (c *Channel) StartInFlightTimeout(msg *Message, clientID int64, timeout tim
 }
 
 func (c *Channel) StartDeferredTimeout(msg *Message, timeout time.Duration) error {
+	// 根据 timeout 计算消息的优先级
 	absTs := time.Now().Add(timeout).UnixNano()
 	item := &pqueue.Item{Value: msg, Priority: absTs}
 	err := c.pushDeferredMessage(item)
 	if err != nil {
 		return err
 	}
+	// 将消息放入延迟队列
 	c.addToDeferredPQ(item)
 	return nil
 }
@@ -573,6 +575,7 @@ func (c *Channel) processDeferredQueue(t int64) bool {
 	dirty := false
 	for {
 		c.deferredMutex.Lock()
+		// 从延迟队列中取出消息，重新投递
 		item, _ := c.deferredPQ.PeekAndShift(t)
 		c.deferredMutex.Unlock()
 
