@@ -67,9 +67,10 @@ func (pq *PriorityQueue) PeekAndShift(max int64) (*Item, int64) {
 	if pq.Len() == 0 {
 		return nil, 0
 	}
-
+	// 数组下标为0的元素是堆顶元素，最小堆
 	item := (*pq)[0]
 	if item.Priority > max {
+		// 最小值都比当前时间max大，说明没有需要弹出的元素
 		return nil, item.Priority - max
 	}
 	heap.Remove(pq, 0)
