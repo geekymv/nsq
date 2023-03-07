@@ -649,7 +649,7 @@ func (n *NSQD) resizePool(num int, workCh chan *Channel, responseCh chan bool, c
 func (n *NSQD) queueScanWorker(workCh chan *Channel, responseCh chan bool, closeCh chan int) {
 	for {
 		select {
-		case c := <-workCh: // 获取 Channel
+		case c := <-workCh: // 取出 Channel
 			now := time.Now().UnixNano()
 			dirty := false
 			// 处理 in-flight 队列
@@ -727,7 +727,7 @@ func (n *NSQD) queueScanLoop() {
 				numDirty++
 			}
 		}
-		// 有超时消息的 Channel 数量占比大于25%（20 个中有 25% 的 Channel 有超时的消息要处理）
+		// 有超时消息的 Channel 数量占比大于25%（20 个中有 25% 的 Channel 有超时的消息已处理）
 		if float64(numDirty)/float64(num) > n.getOpts().QueueScanDirtyPercent { // 0.25
 			// 不需要等待100ms，直接继续抽取 Channel
 			goto loop
