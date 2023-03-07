@@ -10,6 +10,8 @@ func UniqRands(quantity int, maxval int) []int {
 		quantity = maxval
 	}
 
+	// []int{0,...,maxval} 打乱,取前 quantity 个
+
 	intSlice := make([]int, maxval)
 	for i := 0; i < maxval; i++ {
 		intSlice[i] = i
