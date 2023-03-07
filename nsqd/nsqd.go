@@ -620,7 +620,7 @@ func (n *NSQD) channels() []*Channel {
 // 	1 <= pool <= min(num * 0.25, QueueScanWorkerPoolMax)
 //
 func (n *NSQD) resizePool(num int, workCh chan *Channel, responseCh chan bool, closeCh chan int) {
-	idealPoolSize := int(float64(num) * 0.25)
+	idealPoolSize := int(float64(num) * 0.25) // nsqd 中总的 Channel 数量
 	if idealPoolSize < 1 {
 		idealPoolSize = 1
 	} else if idealPoolSize > n.getOpts().QueueScanWorkerPoolMax {
@@ -694,12 +694,13 @@ func (n *NSQD) queueScanLoop() {
 	for {
 		select {
 		case <-workTicker.C:
-			// 每 100ms 执行一次
+			// 每 100ms 执行一次，相当于一次sleep
 			if len(channels) == 0 {
 				continue
 			}
 		case <-refreshTicker.C:
 			// 默认每5s执行一次，根据 Channel 的数量，判断是否要调整 pool size
+			// nsqd 中的 Channel 的数量会变化
 			channels = n.channels()
 			n.resizePool(len(channels), workCh, responseCh, closeCh)
 			continue
@@ -726,7 +727,7 @@ func (n *NSQD) queueScanLoop() {
 				numDirty++
 			}
 		}
-		// 有超时消息的 Channel 数量占比大于25%
+		// 有超时消息的 Channel 数量占比大于25%（20 个中有 25% 的 Channel 有超时的消息要处理）
 		if float64(numDirty)/float64(num) > n.getOpts().QueueScanDirtyPercent { // 0.25
 			// 不需要等待100ms，直接继续抽取 Channel
 			goto loop
