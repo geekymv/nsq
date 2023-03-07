@@ -649,7 +649,7 @@ func (n *NSQD) resizePool(num int, workCh chan *Channel, responseCh chan bool, c
 func (n *NSQD) queueScanWorker(workCh chan *Channel, responseCh chan bool, closeCh chan int) {
 	for {
 		select {
-		case c := <-workCh: // 取出 Channel
+		case c := <-workCh: // 取出一个 Channel
 			now := time.Now().UnixNano()
 			dirty := false
 			// 处理 in-flight 队列
@@ -670,16 +670,20 @@ func (n *NSQD) queueScanWorker(workCh chan *Channel, responseCh chan bool, close
 // queueScanLoop runs in a single goroutine to process in-flight and deferred
 // priority queues. It manages a pool of queueScanWorker (configurable max of
 // QueueScanWorkerPoolMax (default: 4)) that process channels concurrently.
+// 创建 4 个 goroutine (pool size) 并发处理所有 Channel 中的 in-flight 和 deferred priority 队列中过期的消息
 // Redis 过期算法
 // It copies Redis's probabilistic expiration algorithm: it wakes up every
 // QueueScanInterval (default: 100ms) to select a random QueueScanSelectionCount
 // (default: 20) channels from a locally cached list (refreshed every
 // QueueScanRefreshInterval (default: 5s)).
+// 每 100ms 从 Channels 中随机选取 20 个 Channel
+// 每 5s 刷新 Channels，根据 Channels 数量调整 pool size
 //
 // If either of the queues had work to do the channel is considered "dirty".
 //
 // If QueueScanDirtyPercent (default: 25%) of the selected channels were dirty,
 // the loop continues without sleep.
+// 如果选择的20个Channel 中有 25% 都处理了，就不在等待100ms，而是直接随机选取 20 个 Channel
 func (n *NSQD) queueScanLoop() {
 	workCh := make(chan *Channel, n.getOpts().QueueScanSelectionCount) // 要检查的 Channel 数量，default 20
 	responseCh := make(chan bool, n.getOpts().QueueScanSelectionCount)
